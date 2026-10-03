@@ -28,27 +28,33 @@ class Page(HTMLParser):
 
 
 def check():
-    for filename in ("index.html", "style.css", "favicon.svg"):
+    for filename in ("index.html", "404.html", "style.css", "favicon.svg"):
         assert (PUBLIC / filename).is_file(), f"Missing {filename}"
         assert (PUBLIC / filename).stat().st_size, f"Empty {filename}"
 
-    document = (PUBLIC / "index.html").read_text(encoding="utf-8")
-    assert document.lstrip().lower().startswith("<!doctype html>"), "Missing HTML doctype"
-    page = Page()
-    page.feed(document)
-    page.close()
-    assert {"html", "head", "title", "body", "main"} <= page.tags, "Missing page structure"
+    for filename in ("index.html", "404.html"):
+        document = (PUBLIC / filename).read_text(encoding="utf-8")
+        assert document.lstrip().lower().startswith("<!doctype html>"), f"Missing HTML doctype: {filename}"
+        page = Page()
+        page.feed(document)
+        page.close()
+        assert {"html", "head", "title", "body", "main"} <= page.tags, f"Missing page structure: {filename}"
+        assert {"/style.css", "/favicon.svg"} <= set(page.references), f"Missing root-relative assets: {filename}"
 
-    for reference in page.references:
-        url = urlsplit(reference)
-        if url.scheme or url.netloc:
-            continue
-        if url.path:
-            target = (PUBLIC / unquote(url.path).lstrip("/")).resolve()
-            assert target.is_relative_to(PUBLIC.resolve()), f"Outside public/: {reference}"
-            assert target.is_file(), f"Missing local file: {reference}"
-        elif url.fragment:
-            assert unquote(url.fragment) in page.ids, f"Missing anchor: {reference}"
+        for reference in page.references:
+            url = urlsplit(reference)
+            if url.scheme or url.netloc:
+                continue
+            if url.path:
+                assert url.path.startswith("/"), f"Local path must be root-relative: {reference}"
+                target = PUBLIC / unquote(url.path).lstrip("/")
+                if url.path.endswith("/"):
+                    target /= "index.html"
+                target = target.resolve()
+                assert target.is_relative_to(PUBLIC.resolve()), f"Outside public/: {reference}"
+                assert target.is_file(), f"Missing local file: {reference}"
+            elif url.fragment:
+                assert unquote(url.fragment) in page.ids, f"Missing anchor: {reference}"
 
     ElementTree.parse(PUBLIC / "favicon.svg")
     assert not (ROOT / "functions").exists(), "This deployment is static-only"
